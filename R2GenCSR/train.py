@@ -7,6 +7,7 @@ from dataset.data_module import DataModule
 from lightning_tools.callbacks import add_callbacks
 from models.R2GenCSR import R2GenCSR
 from lightning.pytorch import seed_everything
+from lightning.pytorch.callbacks import ModelCheckpoint
 import lightning.pytorch as pl
 
 def train(args):
@@ -14,6 +15,22 @@ def train(args):
     aaa = torch.ones((1,1)).to(f'cuda')
     dm = DataModule(args)
     callbacks = add_callbacks(args)
+
+    # Add checkpoint callback explicitly
+    checkpoint_dir = os.path.join(args.savedmodel_path, "checkpoints")
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=checkpoint_dir,
+        filename='epoch={epoch}-step={step}',
+        save_top_k=-1,  # Save all checkpoints
+        save_last=True,  # Also save a 'last.ckpt'
+        every_n_epochs=1,  # Save after every epoch
+        verbose=True
+    )
+    
+    # Add to callbacks list
+    if "callbacks" not in callbacks or callbacks["callbacks"] is None:
+        callbacks["callbacks"] = []
+    callbacks["callbacks"].append(checkpoint_callback)
 
     trainer = pl.Trainer(
         devices=args.devices,
@@ -31,13 +48,11 @@ def train(args):
     )
 
     # Check for existing checkpoint to resume from
-    checkpoint_dir = os.path.join(args.savedmodel_path, "checkpoints")
     resume_checkpoint = None
     
     if os.path.exists(checkpoint_dir):
         checkpoints = [f for f in os.listdir(checkpoint_dir) if f.endswith('.ckpt')]
         if checkpoints:
-            # Find the most recent checkpoint
             checkpoints.sort(key=lambda x: os.path.getmtime(os.path.join(checkpoint_dir, x)))
             resume_checkpoint = os.path.join(checkpoint_dir, checkpoints[-1])
             print("*" * 50)
@@ -54,7 +69,6 @@ def train(args):
     elif args.validate:
         trainer.validate(model, datamodule=dm)
     else:
-        # Resume from checkpoint if found
         trainer.fit(model, datamodule=dm, ckpt_path=resume_checkpoint)
 
 def main():
